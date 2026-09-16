@@ -1,7 +1,7 @@
 {
   "name": "@turningleaf11/napkin-core",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "description": "Napkin's underwriting engine and UI, shared between the standalone app and OpsHQ's native add-on. Consumers supply their own persistence, auth, and Tailwind theme.",
   "license": "UNLICENSED",
