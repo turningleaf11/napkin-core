@@ -45,6 +45,8 @@ interface OfferBreakdownProps {
   calculations: UnderwritingCalculations;
   interestRate: number;
   amortization: number;
+  // Seller financing only: the note is due in full at this year. See OfferExitSection.
+  balloonYears?: number;
 }
 
 // Compact inline input for offer tabs
@@ -154,9 +156,9 @@ interface OfferBreakdownWithPriceProps extends OfferBreakdownProps {
   onOfferPriceChange?: (price: number) => void;
 }
 
-function OfferBreakdown({ offer, label, inputs, calculations, interestRate, amortization, offerPurchasePrice, onOfferPriceChange }: OfferBreakdownWithPriceProps) {
+function OfferBreakdown({ offer, label, inputs, calculations, interestRate, amortization, balloonYears, offerPurchasePrice, onOfferPriceChange }: OfferBreakdownWithPriceProps) {
   const { grossPotentialRent, vacancyLoss, concessionsLoss, noi, fairMarketValue } = calculations;
-  
+
   // Calculate offer-specific cap rate using the scenario's offer price
   const offerCapRate = offerPurchasePrice > 0 ? (noi / offerPurchasePrice) * 100 : 0;
   const avgRentPerUnit = inputs.grossMonthlyRents / inputs.units;
@@ -165,7 +167,7 @@ function OfferBreakdown({ offer, label, inputs, calculations, interestRate, amor
   const closingCostsAmount = offerPurchasePrice * (inputs.closingCostsPercent / 100);
   const acquisitionFeeAmount = calculateAcquisitionFee(inputs, offerPurchasePrice);
   // Investor-level cash-on-cash, the same figure the Offer Price Solver tests
-  const { avgCashOnCash } = calculateOfferExitData(offer, inputs, interestRate, amortization);
+  const { avgCashOnCash } = calculateOfferExitData(offer, inputs, interestRate, amortization, balloonYears);
   const askingDiscount = inputs.askingPrice > 0 && offerPurchasePrice > 0 
     ? ((inputs.askingPrice - offerPurchasePrice) / inputs.askingPrice) * 100 
     : 0;
@@ -524,22 +526,24 @@ export function OfferBuilder({ inputs, calculations, updateInput, dealId, broker
                 </div>
               </div>
               
-              <OfferBreakdown 
-                offer={sellerFinanceOffer} 
-                label="Seller Financing" 
+              <OfferBreakdown
+                offer={sellerFinanceOffer}
+                label="Seller Financing"
                 inputs={inputs}
                 calculations={calculations}
                 interestRate={inputs.sellerFinanceRate}
                 amortization={inputs.sellerFinanceAmortization}
+                balloonYears={inputs.sellerFinanceBalloonYears}
                 offerPurchasePrice={sellerOfferPrice}
                 onOfferPriceChange={(v) => updateInput('sellerOfferPrice', v)}
               />
-              
+
               <OfferExitSection
                 offer={sellerFinanceOffer}
                 inputs={inputs}
                 offerInterestRate={inputs.sellerFinanceRate}
                 offerAmortization={inputs.sellerFinanceAmortization}
+                balloonYears={inputs.sellerFinanceBalloonYears}
                 updateInput={updateInput}
               />
               

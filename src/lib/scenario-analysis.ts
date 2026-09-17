@@ -71,7 +71,7 @@ export function analyzeOfferAtPrice(
 ): ScenarioAnalysis {
   const offer = calculateOfferAtPrice(inputs, price, scenario);
   const { rate, amortization } = scenarioTerms(inputs, scenario);
-  const exit = calculateOfferExitData(offer, inputs, rate, amortization);
+  const exit = calculateOfferExitData(offer, inputs, rate, amortization, scenario === 'seller' ? inputs.sellerFinanceBalloonYears : undefined);
   const cashFlowPerDoor = inputs.units > 0 ? offer.cashFlow / inputs.units / 12 : 0;
   // With no debt there is nothing to cover
   const dscrPasses = offer.annualDebtService <= 0 || offer.dscr >= inputs.minDSCR;
@@ -198,7 +198,7 @@ export function getScenarioReadiness(
 ): DealReadinessMetric[] {
   const { dscr } = offer;
   const { rate, amortization } = scenarioTerms(inputs, scenario);
-  const exit = calculateOfferExitData(offer, inputs, rate, amortization);
+  const exit = calculateOfferExitData(offer, inputs, rate, amortization, scenario === 'seller' ? inputs.sellerFinanceBalloonYears : undefined);
   const { avgCashOnCash, memberCashFlowYear1, memberCOCYear1, aar, totalROI, irr } = exit;
 
   // Calculate GRM - Gross Rent Multiplier

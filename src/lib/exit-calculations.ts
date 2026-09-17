@@ -128,16 +128,27 @@ export function calculateXIRR(cashFlows: DatedCashFlow[]): number {
   return ((low + high) / 2) * 100;
 }
 
-// Main function to calculate exit data for a specific offer
+// Main function to calculate exit data for a specific offer.
+// balloonYears (seller financing only): the note is due in full at that year regardless
+// of the stated refinance year, so a stated refi later than the balloon -- or no refi at
+// all -- gets overridden by a refinance forced at the balloon year instead. A stated refi
+// already at or before the balloon, or a sale at or before it, needs no override.
 export function calculateOfferExitData(
   offer: OfferResult,
   inputs: PropertyInputs,
   offerInterestRate: number,
-  offerAmortization: number
+  offerAmortization: number,
+  balloonYears?: number
 ): OfferExitResult {
   const saleYear = Math.max(1, Math.round(inputs.saleAtYear));
-  const refiYear = Math.round(inputs.refinanceAtYear);
-  const hasRefi = refiYear >= 1 && refiYear <= saleYear;
+  const statedRefiYear = Math.round(inputs.refinanceAtYear);
+  const hasStatedRefi = statedRefiYear >= 1 && statedRefiYear <= saleYear;
+
+  const balloon = balloonYears && balloonYears > 0 ? Math.round(balloonYears) : 0;
+  const balloonForcesRefi = balloon > 0 && balloon < saleYear && !(hasStatedRefi && statedRefiYear <= balloon);
+
+  const refiYear = balloonForcesRefi ? balloon : statedRefiYear;
+  const hasRefi = balloonForcesRefi || hasStatedRefi;
   const saleCountedInReturns = !hasRefi || refiYear < saleYear;
 
   const capRateIncrease = inputs.exitCapRateIncreasePerYear ?? 0.1;

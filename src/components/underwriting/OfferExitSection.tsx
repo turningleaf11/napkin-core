@@ -13,6 +13,9 @@ interface OfferExitSectionProps {
   offerInterestRate: number;
   offerAmortization: number;
   updateInput: <K extends keyof PropertyInputs>(key: K, value: PropertyInputs[K]) => void;
+  // Seller financing only: the note is due in full at this year, which can force an
+  // earlier refinance than the one stated in Exit Assumptions. See calculateOfferExitData.
+  balloonYears?: number;
 }
 
 interface InlineExitInputProps {
@@ -79,17 +82,18 @@ function WaterfallDivider() {
   return <div className="border-t border-dashed border-border/50 my-1" />;
 }
 
-export function OfferExitSection({ 
-  offer, 
-  inputs, 
-  offerInterestRate, 
+export function OfferExitSection({
+  offer,
+  inputs,
+  offerInterestRate,
   offerAmortization,
-  updateInput 
+  updateInput,
+  balloonYears
 }: OfferExitSectionProps) {
   const [isOpen, setIsOpen] = useState(false);
-  
+
   // Calculate exit data for this specific offer
-  const exitData = calculateOfferExitData(offer, inputs, offerInterestRate, offerAmortization);
+  const exitData = calculateOfferExitData(offer, inputs, offerInterestRate, offerAmortization, balloonYears);
   
   return (
     <div className="mt-4 border-t pt-4">
