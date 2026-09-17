@@ -1,6 +1,6 @@
 // Exit strategy calculations for offer-specific refinance and sale waterfalls.
 // Mirrors the Multifamily Deal Calculator spreadsheet: Exit Strategy, P&L, Returns and IRR tabs.
-import { PropertyInputs, OfferResult, calculateProjectedNOI, calculateProjectedEGI, calculateMemberDistribution, calculateMonthlyPayment } from './underwriting-calculations';
+import { PropertyInputs, OfferResult, calculateProjectedNOI, calculateProjectedEGI, calculateMemberDistribution, calculateMonthlyPayment, calculateAnnualDebtServiceForYear } from './underwriting-calculations';
 
 export interface OfferExitResult {
   // False when the refi year is 0 or after the sale year — the spreadsheet's "NA" refinance
@@ -62,22 +62,26 @@ export interface OfferExitResult {
   avgCashOnCash: number;
 }
 
-// Calculate loan balance with custom terms at a given year
+// Calculate loan balance with custom terms at a given year.
+// Months within interestOnlyMonths pay interest only, so the balance doesn't move
+// until the amortizing payment (over the remaining term) takes over.
 export function calculateLoanBalanceWithTerms(
   principal: number,
   annualRate: number,
   amortizationYears: number,
-  yearsElapsed: number
+  yearsElapsed: number,
+  interestOnlyMonths: number = 0
 ): number {
   const monthlyRate = annualRate / 100 / 12;
-  const monthlyPayment = calculateMonthlyPayment(principal, annualRate, amortizationYears);
+  const amortizingPayment = calculateMonthlyPayment(principal, annualRate, amortizationYears, interestOnlyMonths);
 
   let balance = principal;
   const monthsElapsed = yearsElapsed * 12;
 
-  for (let i = 0; i < monthsElapsed; i++) {
+  for (let month = 1; month <= monthsElapsed; month++) {
     const interestPayment = balance * monthlyRate;
-    const principalPayment = monthlyPayment - interestPayment;
+    if (month <= interestOnlyMonths) continue;
+    const principalPayment = amortizingPayment - interestPayment;
     balance -= principalPayment;
   }
 
@@ -177,7 +181,8 @@ export function calculateOfferExitData(
       offer.loanAmount,
       offerInterestRate,
       offerAmortization,
-      refiYear
+      refiYear,
+      inputs.interestOnlyMonths
     );
     prepaymentPenalty = outstandingBalanceAtRefi * (inputs.prepaymentPenaltyPercent / 100);
     grossRefiProceeds = refiNewLoanAmount - refiCosts - prepaymentPenalty - outstandingBalanceAtRefi;
@@ -223,7 +228,7 @@ export function calculateOfferExitData(
   // Outstanding balance at sale: the refi loan after a refinance, otherwise the acquisition loan
   const outstandingBalanceAtSale = hasRefi
     ? calculateLoanBalanceWithTerms(refiNewLoanAmount, inputs.refiInterestRate, inputs.refiAmortization, saleYear - refiYear)
-    : calculateLoanBalanceWithTerms(offer.loanAmount, offerInterestRate, offerAmortization, saleYear);
+    : calculateLoanBalanceWithTerms(offer.loanAmount, offerInterestRate, offerAmortization, saleYear, inputs.interestOnlyMonths);
 
   // Total equity from sale
   const totalEquity = salePrice + reservesReturned - sellingCosts - outstandingBalanceAtSale;
@@ -267,7 +272,9 @@ export function calculateOfferExitData(
     // Year N grows from the base underwriting for N-1 years
     const yearNOI = calculateProjectedNOI(inputs, year - 1);
     const yearEGI = calculateProjectedEGI(inputs, year - 1);
-    const debtService = hasRefi && year > refiYear ? refiAnnualDebtService : offer.annualDebtService;
+    const debtService = hasRefi && year > refiYear
+      ? refiAnnualDebtService
+      : calculateAnnualDebtServiceForYear(offer.loanAmount, offerInterestRate, offerAmortization, inputs.interestOnlyMonths, year);
 
     // Member's share of cash flow (after asset management fee)
     const memberCashFlow = calculateMemberDistribution(

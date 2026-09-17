@@ -266,22 +266,56 @@ export function check1PercentRule(inputs: PropertyInputs): boolean {
   return monthlyRentRatio >= 0.01;
 }
 
-// Financing calculations
+// Financing calculations.
+// interestOnlyMonths shortens the amortizing period (not the loan term): a 25-year
+// loan with 2 years of interest-only amortizes the original principal over the
+// remaining 23 years once the interest-only period ends.
 export function calculateMonthlyPayment(
   principal: number,
   annualRate: number,
-  amortizationYears: number
+  amortizationYears: number,
+  interestOnlyMonths: number = 0
 ): number {
   const monthlyRate = annualRate / 100 / 12;
-  const numPayments = amortizationYears * 12;
-  
+  const numPayments = Math.max(0, amortizationYears * 12 - interestOnlyMonths);
+
+  if (numPayments === 0) return principal * monthlyRate;
   if (monthlyRate === 0) return principal / numPayments;
-  
+
   return (
     principal *
     (monthlyRate * Math.pow(1 + monthlyRate, numPayments)) /
     (Math.pow(1 + monthlyRate, numPayments) - 1)
   );
+}
+
+// The payment due during an interest-only period: interest only, no amortization.
+export function calculateInterestOnlyPayment(principal: number, annualRate: number): number {
+  return principal * (annualRate / 100 / 12);
+}
+
+// Annual debt service for a specific year of the loan's life (year 1 = months 1-12),
+// blending interest-only and amortizing payments across the interest-only cutover.
+export function calculateAnnualDebtServiceForYear(
+  principal: number,
+  annualRate: number,
+  amortizationYears: number,
+  interestOnlyMonths: number,
+  year: number
+): number {
+  if (interestOnlyMonths <= 0) {
+    return calculateMonthlyPayment(principal, annualRate, amortizationYears) * 12;
+  }
+
+  const ioPayment = calculateInterestOnlyPayment(principal, annualRate);
+  const amortizingPayment = calculateMonthlyPayment(principal, annualRate, amortizationYears, interestOnlyMonths);
+  const startMonth = (year - 1) * 12 + 1;
+
+  let total = 0;
+  for (let month = startMonth; month < startMonth + 12; month++) {
+    total += month <= interestOnlyMonths ? ioPayment : amortizingPayment;
+  }
+  return total;
 }
 
 export function calculateLoanAmount(inputs: PropertyInputs): number {
@@ -294,12 +328,13 @@ export function calculateDownPayment(inputs: PropertyInputs): number {
 
 export function calculateAnnualDebtService(inputs: PropertyInputs): number {
   const loanAmount = calculateLoanAmount(inputs);
-  const monthlyPayment = calculateMonthlyPayment(
+  return calculateAnnualDebtServiceForYear(
     loanAmount,
     inputs.interestRate,
-    inputs.amortizationYears
+    inputs.amortizationYears,
+    inputs.interestOnlyMonths,
+    1
   );
-  return monthlyPayment * 12;
 }
 
 export function calculateDSCR(inputs: PropertyInputs): number {
@@ -430,22 +465,24 @@ export function calculateYear5Value(inputs: PropertyInputs): number {
 export function calculateLoanBalanceAtYear(inputs: PropertyInputs, years: number): number {
   const loanAmount = calculateLoanAmount(inputs);
   const monthlyRate = inputs.interestRate / 100 / 12;
-  const monthlyPayment = calculateMonthlyPayment(
+  const amortizingPayment = calculateMonthlyPayment(
     loanAmount,
     inputs.interestRate,
-    inputs.amortizationYears
+    inputs.amortizationYears,
+    inputs.interestOnlyMonths
   );
-  
+
   // Calculate remaining balance after payments
   const numPayments = years * 12;
   let balance = loanAmount;
-  
-  for (let i = 0; i < numPayments; i++) {
+
+  for (let month = 1; month <= numPayments; month++) {
     const interestPayment = balance * monthlyRate;
-    const principalPayment = monthlyPayment - interestPayment;
+    if (month <= inputs.interestOnlyMonths) continue;
+    const principalPayment = amortizingPayment - interestPayment;
     balance -= principalPayment;
   }
-  
+
   return Math.max(0, balance);
 }
 
@@ -545,122 +582,6 @@ export interface OfferResult {
   cashOnCash: number;
 }
 
-export function calculateDSCRLoanOffer(inputs: PropertyInputs): OfferResult {
-  const loanAmount = calculateLoanAmount(inputs);
-  const downPayment = inputs.purchasePrice - loanAmount;
-  const monthlyPayment = calculateMonthlyPayment(loanAmount, inputs.interestRate, inputs.amortizationYears);
-  const annualDebtService = monthlyPayment * 12;
-  const closingCosts = inputs.purchasePrice * (inputs.closingCostsPercent / 100);
-  const totalCapitalRequired = downPayment + inputs.repairs + inputs.operatingReserves + closingCosts + calculateAcquisitionFee(inputs, inputs.purchasePrice);
-  const noi = calculateNOI(inputs);
-  const dscr = noi / annualDebtService;
-  const cashFlow = noi - annualDebtService;
-  const cashOnCash = (cashFlow / totalCapitalRequired) * 100;
-  
-  return {
-    loanAmount,
-    downPayment,
-    monthlyPayment,
-    annualDebtService,
-    totalCapitalRequired,
-    dscr,
-    cashFlow,
-    cashOnCash,
-  };
-}
-
-export function calculateSellerFinanceOffer(inputs: PropertyInputs): OfferResult {
-  // Calculate loan amount from down payment percentage
-  const downPayment = inputs.purchasePrice * (inputs.sellerFinanceDownPaymentPercent / 100);
-  const loanAmount = inputs.purchasePrice - downPayment;
-  const monthlyPayment = calculateMonthlyPayment(
-    loanAmount,
-    inputs.sellerFinanceRate,
-    inputs.sellerFinanceAmortization
-  );
-  const annualDebtService = monthlyPayment * 12;
-  const closingCosts = inputs.purchasePrice * (inputs.closingCostsPercent / 100);
-  const totalCapitalRequired = downPayment + inputs.repairs + inputs.operatingReserves + closingCosts + calculateAcquisitionFee(inputs, inputs.purchasePrice);
-  const noi = calculateNOI(inputs);
-  const dscr = noi / annualDebtService;
-  const cashFlow = noi - annualDebtService;
-  const cashOnCash = (cashFlow / totalCapitalRequired) * 100;
-  
-  return {
-    loanAmount,
-    downPayment,
-    monthlyPayment,
-    annualDebtService,
-    totalCapitalRequired,
-    dscr,
-    cashFlow,
-    cashOnCash,
-  };
-}
-
-export function calculateSubjectToOffer(inputs: PropertyInputs): OfferResult {
-  const loanAmount = inputs.existingDebtBalance;
-  const downPayment = inputs.purchasePrice - loanAmount;
-  const monthlyPayment = inputs.existingDebtPayment || 
-    calculateMonthlyPayment(loanAmount, inputs.existingDebtRate, 25);
-  const annualDebtService = monthlyPayment * 12;
-  const closingCosts = inputs.purchasePrice * (inputs.closingCostsPercent / 100);
-  const totalCapitalRequired = downPayment + inputs.repairs + inputs.operatingReserves + closingCosts + calculateAcquisitionFee(inputs, inputs.purchasePrice);
-  const noi = calculateNOI(inputs);
-  const dscr = annualDebtService > 0 ? noi / annualDebtService : 0;
-  const cashFlow = noi - annualDebtService;
-  const cashOnCash = totalCapitalRequired > 0 ? (cashFlow / totalCapitalRequired) * 100 : 0;
-  
-  return {
-    loanAmount,
-    downPayment,
-    monthlyPayment,
-    annualDebtService,
-    totalCapitalRequired,
-    dscr,
-    cashFlow,
-    cashOnCash,
-  };
-}
-
-export function calculateHybridOffer(inputs: PropertyInputs): OfferResult {
-  const dscrLoanAmount = inputs.purchasePrice * (inputs.dscrLoanPercent / 100);
-  const sellerCarryAmount = inputs.sellerFinanceAmount || 
-    (inputs.purchasePrice - dscrLoanAmount) * 0.5;
-  const downPayment = inputs.purchasePrice - dscrLoanAmount - sellerCarryAmount;
-  
-  const dscrMonthlyPayment = calculateMonthlyPayment(
-    dscrLoanAmount,
-    inputs.interestRate,
-    inputs.amortizationYears
-  );
-  const sellerMonthlyPayment = calculateMonthlyPayment(
-    sellerCarryAmount,
-    inputs.sellerFinanceRate,
-    inputs.sellerFinanceAmortization
-  );
-  
-  const monthlyPayment = dscrMonthlyPayment + sellerMonthlyPayment;
-  const annualDebtService = monthlyPayment * 12;
-  const closingCosts = inputs.purchasePrice * (inputs.closingCostsPercent / 100);
-  const totalCapitalRequired = downPayment + inputs.repairs + inputs.operatingReserves + closingCosts + calculateAcquisitionFee(inputs, inputs.purchasePrice);
-  const noi = calculateNOI(inputs);
-  const dscr = annualDebtService > 0 ? noi / annualDebtService : 0;
-  const cashFlow = noi - annualDebtService;
-  const cashOnCash = totalCapitalRequired > 0 ? (cashFlow / totalCapitalRequired) * 100 : 0;
-  
-  return {
-    loanAmount: dscrLoanAmount + sellerCarryAmount,
-    downPayment,
-    monthlyPayment,
-    annualDebtService,
-    totalCapitalRequired,
-    dscr,
-    cashFlow,
-    cashOnCash,
-  };
-}
-
 // Calculate offer at a specific price (used for solver-derived prices)
 export function calculateOfferAtPrice(
   inputs: PropertyInputs,
@@ -678,15 +599,15 @@ export function calculateOfferAtPrice(
     case 'dscr': {
       loanAmount = purchasePrice * (inputs.ltv / 100);
       downPayment = purchasePrice - loanAmount;
-      monthlyPayment = calculateMonthlyPayment(loanAmount, inputs.interestRate, inputs.amortizationYears);
-      annualDebtService = monthlyPayment * 12;
+      annualDebtService = calculateAnnualDebtServiceForYear(loanAmount, inputs.interestRate, inputs.amortizationYears, inputs.interestOnlyMonths, 1);
+      monthlyPayment = annualDebtService / 12;
       break;
     }
     case 'seller': {
       downPayment = purchasePrice * (inputs.sellerFinanceDownPaymentPercent / 100);
       loanAmount = purchasePrice - downPayment;
-      monthlyPayment = calculateMonthlyPayment(loanAmount, inputs.sellerFinanceRate, inputs.sellerFinanceAmortization);
-      annualDebtService = monthlyPayment * 12;
+      annualDebtService = calculateAnnualDebtServiceForYear(loanAmount, inputs.sellerFinanceRate, inputs.sellerFinanceAmortization, inputs.interestOnlyMonths, 1);
+      monthlyPayment = annualDebtService / 12;
       break;
     }
     case 'subto': {
@@ -701,10 +622,10 @@ export function calculateOfferAtPrice(
       const sellerCarryAmount = inputs.sellerFinanceAmount || (purchasePrice - dscrLoanAmount) * 0.5;
       loanAmount = dscrLoanAmount + sellerCarryAmount;
       downPayment = purchasePrice - loanAmount;
-      const dscrMonthlyPayment = calculateMonthlyPayment(dscrLoanAmount, inputs.interestRate, inputs.amortizationYears);
-      const sellerMonthlyPayment = calculateMonthlyPayment(sellerCarryAmount, inputs.sellerFinanceRate, inputs.sellerFinanceAmortization);
-      monthlyPayment = dscrMonthlyPayment + sellerMonthlyPayment;
-      annualDebtService = monthlyPayment * 12;
+      const dscrAnnualDebtService = calculateAnnualDebtServiceForYear(dscrLoanAmount, inputs.interestRate, inputs.amortizationYears, inputs.interestOnlyMonths, 1);
+      const sellerAnnualDebtService = calculateAnnualDebtServiceForYear(sellerCarryAmount, inputs.sellerFinanceRate, inputs.sellerFinanceAmortization, inputs.interestOnlyMonths, 1);
+      annualDebtService = dscrAnnualDebtService + sellerAnnualDebtService;
+      monthlyPayment = annualDebtService / 12;
       break;
     }
   }
@@ -1019,7 +940,7 @@ export function getDealInsights(inputs: PropertyInputs): DealInsight[] {
 
   // 6. DSCR at Asking Check (using DSCR loan assumptions)
   const loanAtAsking = inputs.askingPrice * (inputs.ltv / 100);
-  const paymentAtAsking = calculateMonthlyPayment(loanAtAsking, inputs.interestRate, inputs.amortizationYears) * 12;
+  const paymentAtAsking = calculateAnnualDebtServiceForYear(loanAtAsking, inputs.interestRate, inputs.amortizationYears, inputs.interestOnlyMonths, 1);
   const dscrAtAsking = noi / paymentAtAsking;
   
   if (dscrAtAsking < 1.25) {
