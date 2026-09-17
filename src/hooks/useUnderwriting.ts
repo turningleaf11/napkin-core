@@ -25,6 +25,7 @@ import {
   calculateConcessionsLoss,
   calculateClosingCostsAmount,
   calculateOfferAtPrice,
+  calculateMonthlyPayment,
 } from '../lib/underwriting-calculations';
 import { solveMaxDSCROffer, solveMaxSellerFinanceOffer } from '../lib/scenario-analysis';
 
@@ -67,9 +68,8 @@ export function useUnderwriting() {
     // Overview-specific calculations using askingPrice as base
     const overviewLoanAmount = inputs.askingPrice * (inputs.ltv / 100);
     const overviewDownPayment = inputs.askingPrice * (1 - inputs.ltv / 100);
-    const overviewMonthlyPayment = overviewLoanAmount > 0 
-      ? (overviewLoanAmount * (inputs.interestRate / 100 / 12) * Math.pow(1 + inputs.interestRate / 100 / 12, inputs.amortizationYears * 12)) /
-        (Math.pow(1 + inputs.interestRate / 100 / 12, inputs.amortizationYears * 12) - 1)
+    const overviewMonthlyPayment = overviewLoanAmount > 0
+      ? calculateMonthlyPayment(overviewLoanAmount, inputs.interestRate, inputs.amortizationYears)
       : 0;
     const overviewAnnualDebtService = overviewMonthlyPayment * 12;
     const overviewClosingCosts = inputs.askingPrice * (inputs.closingCostsPercent / 100);
