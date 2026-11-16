@@ -1,6 +1,6 @@
 {
   "name": "@turningleaf11/napkin-core",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": false,
   "type": "module",
   "description": "Napkin's underwriting engine and UI, shared between the standalone app and OpsHQ's native add-on. Consumers supply their own persistence, auth, and Tailwind theme.",
@@ -27,7 +27,8 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "peerDependencies": {
     "react": "^18.3.1",
@@ -54,6 +55,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tsup": "^8.3.5",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.9"
   }
 }

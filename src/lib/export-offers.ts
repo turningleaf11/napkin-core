@@ -1,4 +1,4 @@
-import { PropertyInputs, OfferResult, formatCurrency, formatPercent, formatNumber } from './underwriting-calculations';
+import { PropertyInputs, OfferResult, calculateAcquisitionFee, formatCurrency, formatPercent, formatNumber } from './underwriting-calculations';
 import { UnderwritingCalculations } from '../hooks/useUnderwriting';
 import { BrokerFeedbackData } from '../types';
 
@@ -80,10 +80,14 @@ function buildOfferText(
 ): string {
   const { grossPotentialRent, vacancyLoss, concessionsLoss, noi, fairMarketValue } = calculations;
   const offerCapRate = offerPrice > 0 ? (noi / offerPrice) * 100 : 0;
-  const avgRentPerUnit = inputs.grossMonthlyRents / inputs.units;
-  const cashFlowPerUnitMonth = (offer.cashFlow / inputs.units) / 12;
+  const avgRentPerUnit = inputs.units > 0 ? inputs.grossMonthlyRents / inputs.units : 0;
+  const cashFlowPerUnitMonth = inputs.units > 0 ? (offer.cashFlow / inputs.units) / 12 : 0;
   const downPaymentPercent = offerPrice > 0 ? (offer.downPayment / offerPrice) * 100 : 0;
   const closingCostsAmount = offerPrice * (inputs.closingCostsPercent / 100);
+  const acquisitionFee = calculateAcquisitionFee(inputs, offerPrice);
+  const expensePercent = calculations.effectiveGrossIncome > 0
+    ? (calculations.operatingExpenses / calculations.effectiveGrossIncome) * 100
+    : 0;
   const askingDiscount = inputs.askingPrice > 0 && offerPrice > 0
     ? ((inputs.askingPrice - offerPrice) / inputs.askingPrice) * 100
     : 0;
@@ -125,6 +129,9 @@ function buildOfferText(
   lines.push(`  Repairs:           ${formatCurrency(inputs.repairs)}`);
   lines.push(`  Operating Reserves:${formatCurrency(inputs.operatingReserves)}`);
   lines.push(`  Closing Costs:     ${formatCurrency(closingCostsAmount)} (${formatPercent(inputs.closingCostsPercent)})`);
+  if (acquisitionFee > 0) {
+    lines.push(`  Acquisition Fee:   ${formatCurrency(acquisitionFee)} (${formatPercent(inputs.acquisitionFeePercent ?? 0)})`);
+  }
   lines.push(`  Total Capital Req: ${formatCurrency(offer.totalCapitalRequired)}`);
   lines.push(``);
 
@@ -144,7 +151,7 @@ function buildOfferText(
   // Expenses
   lines.push(`EXPENSES`);
   lines.push(`────────────────────────────────────────`);
-  lines.push(`  Total Expenses:    (${formatCurrency(calculations.operatingExpenses)}) @ ${formatPercent(inputs.expenseRate)}`);
+  lines.push(`  Total Expenses:    (${formatCurrency(calculations.operatingExpenses)}) @ ${formatPercent(expensePercent)}`);
   lines.push(``);
 
   // NOI

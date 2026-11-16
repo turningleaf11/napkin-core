@@ -189,7 +189,7 @@ export function OfferExitSection({
             </div>
             {!exitData.hasRefi ? (
               <p className="text-xs text-muted-foreground">
-                No refinance planned — set a refi year between 1 and the sale year to include one.
+                No refinance planned — set a refi year before the sale year to include one.
               </p>
             ) : (
             <div className="space-y-0">
@@ -220,6 +220,13 @@ export function OfferExitSection({
                 label="- Return of Member Capital" 
                 value={formatCurrency(exitData.returnOfCapitalAtRefi)} 
               />
+              {exitData.capitalAddedAtRefi > 0 && (
+                <WaterfallRow
+                  label="Cash Members Must Add (refinance comes up short)"
+                  value={formatCurrency(exitData.capitalAddedAtRefi)}
+                  isNegative
+                />
+              )}
               <WaterfallDivider />
               <WaterfallRow 
                 label="Capital Account After Refi" 
@@ -277,13 +284,7 @@ export function OfferExitSection({
               <DollarSign className="h-3 w-3" />
               Sale (Year {exitData.saleYear})
             </div>
-            {!exitData.saleCountedInReturns && (
-              <p className="text-xs text-muted-foreground pb-2">
-                The sale is in the same year as the refinance, so returns are measured through the refinance, as in
-                the spreadsheet. Set a later sale year to count it.
-              </p>
-            )}
-            <div className={`space-y-0 ${exitData.saleCountedInReturns ? '' : 'opacity-50'}`}>
+            <div className="space-y-0">
               <WaterfallRow label="Net Operating Income" value={formatCurrency(exitData.saleNOI)} />
               <WaterfallRow label="Cap Rate" value={formatPercent(exitData.saleCapRate, 2)} />
               <WaterfallRow label="Sales Price" value={formatCurrency(exitData.salePrice)} />
@@ -308,6 +309,20 @@ export function OfferExitSection({
                 label="- Return of Member Capital" 
                 value={formatCurrency(exitData.returnOfCapitalAtSale)} 
               />
+              {exitData.capitalAddedAtSale > 0 && (
+                <WaterfallRow
+                  label="Cash Members Must Add (sale doesn't clear the loan)"
+                  value={formatCurrency(exitData.capitalAddedAtSale)}
+                  isNegative
+                />
+              )}
+              {exitData.capitalLost > 0 && (
+                <WaterfallRow
+                  label="Member Capital Not Returned"
+                  value={formatCurrency(exitData.capitalLost)}
+                  isNegative
+                />
+              )}
               <WaterfallDivider />
               <WaterfallRow label="Net Proceeds/Profit" value={formatCurrency(exitData.netProfitFromSale)} />
               <WaterfallDivider />
@@ -355,9 +370,24 @@ export function OfferExitSection({
               label="Total Profits from Appreciation" 
               value={formatCurrency(exitData.totalProfitsFromAppreciation)} 
             />
+            {exitData.reservesUsed > 0 && (
+              <WaterfallRow
+                label="Operating Reserves Used to Cover Losing Years"
+                value={formatCurrency(exitData.reservesUsed)}
+                isNegative
+              />
+            )}
+            {exitData.memberCapitalAdded > 0 && (
+              <WaterfallRow
+                label="Cash Members Add After Closing"
+                value={formatCurrency(exitData.memberCapitalAdded)}
+                isNegative
+              />
+            )}
             <WaterfallRow 
-              label="Total Return on Investment (Members)" 
+              label="Total Member Profit (cash back minus cash in)" 
               value={formatCurrency(exitData.totalCashToMembers)} 
+              isNegative={exitData.totalCashToMembers < 0}
               isSummary
             />
             <WaterfallRow 
@@ -377,8 +407,12 @@ export function OfferExitSection({
               value={formatPercent(exitData.aar)} 
             />
             <WaterfallRow 
-              label="Avg COC" 
+              label="Avg COC (every year)" 
               value={formatPercent(exitData.avgCashOnCash)} 
+            />
+            <WaterfallRow 
+              label="COC (Yr 1)" 
+              value={formatPercent(exitData.memberCOCYear1)} 
             />
           </div>
         </div>

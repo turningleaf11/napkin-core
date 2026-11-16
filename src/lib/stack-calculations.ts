@@ -99,6 +99,10 @@ export function calculateStackDeal(inputs: PropertyInputs, purchasePrice: number
   const w7_tfPayback = tfTotalPayback;
   remaining -= w7_tfPayback;
   const buyerWalkAwayCash = remaining;
+  // When the loan and the seller carry don't cover everything, the gap is cash the buyer brings
+  const buyerCashNeeded = Math.max(0, -buyerWalkAwayCash);
+  // When the seller's payoff and costs exceed their cash at closing, the seller has to bring this much
+  const sellerShortfall = Math.max(0, -sellerNetCash);
 
   // Property liens
   const firstLienAmt = loanAmount;
@@ -136,12 +140,14 @@ export function calculateStackDeal(inputs: PropertyInputs, purchasePrice: number
 
   // === EXIT STRATEGY ===
   // Project NOI at refi year (Year 1 = no growth, Year N = N-1 years growth for operations)
+  // A refinance only happens before the sale year; otherwise both liens are paid off at the sale
+  const hasRefi = refiYear >= 1 && refiYear < saleYear;
   const noiAtRefi = noiYr * Math.pow(1 + rentGrowthPct / 100, Math.max(refiYear - 1, 0));
   // Appraised value uses end-of-year valuation: full N years growth
-  const appraisedValueRefi = exitCapRate > 0 ? (noiYr * Math.pow(1 + rentGrowthPct / 100, refiYear)) / (exitCapRate / 100) : 0;
+  const appraisedValueRefi = hasRefi && exitCapRate > 0 ? (noiYr * Math.pow(1 + rentGrowthPct / 100, refiYear)) / (exitCapRate / 100) : 0;
 
-  const loan1BalanceAtRefi = calculateLoanBalanceAtYear(firstLienAmt, firstLienRate, firstLienAmort, refiYear);
-  const loan2BalanceAtRefi = calculateLoanBalanceAtYear(secondLienAmt, secondLienRate, secondLienAmort, refiYear);
+  const loan1BalanceAtRefi = hasRefi ? calculateLoanBalanceAtYear(firstLienAmt, firstLienRate, firstLienAmort, refiYear) : 0;
+  const loan2BalanceAtRefi = hasRefi ? calculateLoanBalanceAtYear(secondLienAmt, secondLienRate, secondLienAmort, refiYear) : 0;
   const totalLienPayoff = loan1BalanceAtRefi + loan2BalanceAtRefi;
 
   const newRefiLoan = appraisedValueRefi * (refiLTV / 100);
@@ -157,7 +163,11 @@ export function calculateStackDeal(inputs: PropertyInputs, purchasePrice: number
   const noiAtSale = noiYr * Math.pow(1 + rentGrowthPct / 100, Math.max(saleYear - 1, 0));
   const saleCapRate = exitCapRate + (capRateIncreasePerYear * saleYear);
   const salePrice = saleCapRate > 0 ? (noiYr * Math.pow(1 + rentGrowthPct / 100, saleYear)) / (saleCapRate / 100) : 0;
-  const refiLoanBalanceAtSale = calculateLoanBalanceAtYear(newRefiLoan, refiRate, refiAmort, yearsAfterRefi);
+  // Debt paid off at the sale: the refinance loan, or both original liens when there was no refinance
+  const refiLoanBalanceAtSale = hasRefi
+    ? calculateLoanBalanceAtYear(newRefiLoan, refiRate, refiAmort, yearsAfterRefi)
+    : calculateLoanBalanceAtYear(firstLienAmt, firstLienRate, firstLienAmort, saleYear)
+      + calculateLoanBalanceAtYear(secondLienAmt, secondLienRate, secondLienAmort, saleYear);
   const sellingCosts = salePrice * (sellingCostsPct / 100);
   const netSaleProceeds = salePrice - refiLoanBalanceAtSale - sellingCosts;
 
@@ -165,7 +175,7 @@ export function calculateStackDeal(inputs: PropertyInputs, purchasePrice: number
   let totalCashFromOps = 0;
   for (let yr = 1; yr <= saleYear; yr++) {
     const grownNOI = noiYr * Math.pow(1 + rentGrowthPct / 100, Math.max(yr - 1, 0));
-    if (yr <= refiYear) {
+    if (!hasRefi || yr <= refiYear) {
       totalCashFromOps += grownNOI - (combinedPmtMo * 12);
     } else {
       totalCashFromOps += grownNOI - (refiPmtMo * 12);
@@ -179,7 +189,7 @@ export function calculateStackDeal(inputs: PropertyInputs, purchasePrice: number
     loanAmount, downPayment, buyerClosingCosts, originationFee, buyerTotalCostToClose,
     tfFundingAmount, tfFee, tfTotalPayback, escrowTotalIn,
     w1_payoffLoan, w2_sellerClosing, w3_reCommission, w4_sellerNetCash,
-    w5_buyerClosing, w6_originationFee, w7_tfPayback, buyerWalkAwayCash,
+    w5_buyerClosing, w6_originationFee, w7_tfPayback, buyerWalkAwayCash, buyerCashNeeded, sellerShortfall,
     firstLienAmt, secondLienAmt, combinedLiens,
     firstLienLtv, secondLienLtv, combinedLtv,
     firstPmtMo, secondPmtMo, combinedPmtMo,
@@ -188,7 +198,7 @@ export function calculateStackDeal(inputs: PropertyInputs, purchasePrice: number
     noiMo, noiYr, dscr1st, dscrCombined,
     cashFlowMo, cashFlowYr, expensesPct, grm,
     // Exit
-    noiAtRefi, appraisedValueRefi, loan1BalanceAtRefi, loan2BalanceAtRefi, totalLienPayoff,
+    hasRefi, noiAtRefi, appraisedValueRefi, loan1BalanceAtRefi, loan2BalanceAtRefi, totalLienPayoff,
     newRefiLoan, refiCosts, prepayPenalty, netRefiProceeds, refiPmtMo,
     noiAtSale, saleCapRate, salePrice, refiLoanBalanceAtSale, sellingCosts, netSaleProceeds,
     totalCashFromOps, totalReturn,
@@ -269,6 +279,17 @@ export function getStackReadiness(inputs: PropertyInputs, calc: StackDeal): Stac
       'Verify actual expenses vs. pro forma. Check for deferred maintenance that could increase costs.',
       'Reduce expenses (negotiate management fees), increase occupancy, raise rents, or restructure debt terms.',
       true,
+    ),
+    metric(
+      { key: 'cashToClose', label: 'Cash at Closing', value: calc.buyerWalkAwayCash, threshold: 0, unit: '$', direction: 'min' },
+      formatCurrency(calc.buyerWalkAwayCash),
+      '≥ $0',
+      calc.buyerWalkAwayCash >= 0
+        ? `The loan and the seller carry cover the closing. You walk away with ${formatCurrency(calc.buyerWalkAwayCash)}.`
+        : `The loan and the seller carry fall ${formatCurrency(calc.buyerCashNeeded)} short at closing. That is cash you bring.`,
+      'The Stack only works with $0 in when the 1st loan plus the seller carry cover the price, both sides\' costs and the transactional funder\'s fee.',
+      'The seller\'s existing loan payoff, and how much of the price the seller will carry.',
+      'Raise the seller carry %, raise the 1st loan LTV, or trim closing costs and fees.',
     ),
     metric(
       { key: 'grm', label: 'GRM', value: calc.grm, threshold: maxGRM, unit: 'x', direction: 'max' },

@@ -851,16 +851,18 @@ export function getDealInsights(inputs: PropertyInputs): DealInsight[] {
   }
 
   // 3. GRM Check
-  const askGRM = inputs.askingPrice / (inputs.grossMonthlyRents * 12);
-  if (askGRM > 10) {
-    const targetPrice = inputs.grossMonthlyRents * 12 * 10;
-    
+  const grmLimit = inputs.maxGRM > 0 ? inputs.maxGRM : 10;
+  const askGRM = inputs.grossMonthlyRents > 0 ? inputs.askingPrice / (inputs.grossMonthlyRents * 12) : 0;
+  if (askGRM > grmLimit) {
+    const targetPrice = inputs.grossMonthlyRents * 12 * grmLimit;
+    const wayOver = askGRM > grmLimit * 1.2;
+
     insights.push({
       id: 'high-grm',
-      title: askGRM > 12 ? 'GRM Too High' : 'GRM Elevated',
-      severity: askGRM > 12 ? 'error' : 'warning',
-      summary: `GRM of ${formatNumber(askGRM, 1)} means you're paying ${formatNumber(askGRM, 1)} years of gross rent. Target: <10.`,
-      whyItMatters: 'Gross Rent Multiplier (GRM) shows how many years of gross rent equal the purchase price. Lower is better. A GRM above 10 suggests either premium pricing or value-add opportunity. Above 12 is concerning for most markets.',
+      title: wayOver ? 'GRM Too High' : 'GRM Elevated',
+      severity: wayOver ? 'error' : 'warning',
+      summary: `GRM of ${formatNumber(askGRM, 1)} means you're paying ${formatNumber(askGRM, 1)} years of gross rent. Your limit: ${formatNumber(grmLimit, 1)}.`,
+      whyItMatters: 'Gross Rent Multiplier (GRM) shows how many years of gross rent equal the purchase price. Lower is better. A GRM above your limit suggests either premium pricing or a value-add opportunity.',
       lookForInOM: [
         'Pro forma vs in-place rents (are projections realistic?)',
         'Comparable sales GRMs in the submarket',
@@ -868,7 +870,7 @@ export function getDealInsights(inputs: PropertyInputs): DealInsight[] {
         'High vacancy or bad debt eating into effective income'
       ],
       whatToAdjust: [
-        `Offer ${formatCurrency(targetPrice)} to achieve GRM of 10`,
+        `Offer ${formatCurrency(targetPrice)} to achieve GRM of ${formatNumber(grmLimit, 1)}`,
         'Focus on rent increase potential to bring effective GRM down'
       ],
       targetValue: formatCurrency(targetPrice)
@@ -899,14 +901,16 @@ export function getDealInsights(inputs: PropertyInputs): DealInsight[] {
   }
 
   // 5. Expense Ratio Check
-  const expenseRatio = (expenses / egi) * 100;
-  if (expenseRatio < 40) {
+  const expenseRatio = egi > 0 ? (expenses / egi) * 100 : 0;
+  // Compared after rounding so a ratio that is the limit to the cent never reads as under it
+  const expenseFloor = inputs.minExpenseRatio > 0 ? inputs.minExpenseRatio : 50;
+  if (egi > 0 && Math.round(expenseRatio * 100) / 100 < expenseFloor) {
     insights.push({
       id: 'low-expense-ratio',
       title: 'Expense Ratio Looks Optimistic',
-      severity: expenseRatio < 35 ? 'error' : 'warning',
-      summary: `${formatPercent(expenseRatio, 0)} expense ratio is below typical 40-50% range.`,
-      whyItMatters: 'Most multifamily properties run 40-50% expense ratios. Below 40% often means the seller\'s T12 excludes management fees, reserves, or deferred maintenance. Your actual costs will likely be higher.',
+      severity: expenseRatio < expenseFloor - 10 ? 'error' : 'warning',
+      summary: `${formatPercent(expenseRatio, 0)} expense ratio is below your ${formatPercent(expenseFloor, 0)} minimum.`,
+      whyItMatters: `Underwriting expenses below ${formatPercent(expenseFloor, 0)} of income often means the seller's T12 excludes management fees, reserves, or deferred maintenance. Your actual costs will likely be higher.`,
       lookForInOM: [
         'Is professional management fee included (typically 5-8%)?',
         'Are replacement reserves included ($200-400/unit/year)?',
@@ -914,16 +918,16 @@ export function getDealInsights(inputs: PropertyInputs): DealInsight[] {
         'Look for deferred maintenance that will hit your budget'
       ],
       whatToAdjust: [
-        'Rerun analysis using 45-50% expense ratio as reality check',
+        `Rerun the analysis at ${formatPercent(expenseFloor, 0)} expenses as a reality check`,
         'Request detailed expense breakdown from seller'
       ]
     });
-  } else if (expenseRatio > 55) {
+  } else if (expenseRatio > Math.max(55, expenseFloor + 5)) {
     insights.push({
       id: 'high-expense-ratio',
       title: 'High Expense Ratio',
       severity: 'info',
-      summary: `${formatPercent(expenseRatio, 0)} expense ratio is above typical 40-50% range.`,
+      summary: `${formatPercent(expenseRatio, 0)} expense ratio is on the high side.`,
       whyItMatters: 'Higher than normal expenses could indicate poor management, deferred maintenance catching up, or accurate accounting. This could be a value-add opportunity if you can improve operations.',
       lookForInOM: [
         'Line-item expense breakdown to find outliers',
@@ -941,23 +945,23 @@ export function getDealInsights(inputs: PropertyInputs): DealInsight[] {
   // 6. DSCR at Asking Check (using DSCR loan assumptions)
   const loanAtAsking = inputs.askingPrice * (inputs.ltv / 100);
   const paymentAtAsking = calculateAnnualDebtServiceForYear(loanAtAsking, inputs.interestRate, inputs.amortizationYears, inputs.interestOnlyMonths, 1);
-  const dscrAtAsking = noi / paymentAtAsking;
-  
-  if (dscrAtAsking < 1.25) {
-    // Calculate price where DSCR = 1.25
-    const maxDebtService = noi / 1.25;
-    const maxMonthlyPayment = maxDebtService / 12;
-    // Work backwards to find max loan amount
-    const monthlyRate = inputs.interestRate / 100 / 12;
-    const numPayments = inputs.amortizationYears * 12;
-    const maxLoan = maxMonthlyPayment * (Math.pow(1 + monthlyRate, numPayments) - 1) / (monthlyRate * Math.pow(1 + monthlyRate, numPayments));
+  const dscrLimit = inputs.minDSCR > 0 ? inputs.minDSCR : 1.25;
+  const dscrAtAsking = paymentAtAsking > 0 ? noi / paymentAtAsking : Infinity;
+
+  if (dscrAtAsking < dscrLimit) {
+    // The year-one payment scales with the loan, so the largest loan that still covers
+    // is the debt service the NOI can carry divided by the payment on one dollar of loan.
+    // Uses the same year-one payment as the DSCR above, interest-only months included.
+    const maxDebtService = Math.max(0, noi) / dscrLimit;
+    const paymentPerDollar = paymentAtAsking / loanAtAsking;
+    const maxLoan = maxDebtService / paymentPerDollar;
     const maxPurchasePrice = maxLoan / (inputs.ltv / 100);
-    
+
     insights.push({
       id: 'low-dscr',
       title: 'DSCR Below Threshold',
       severity: dscrAtAsking < 1.0 ? 'error' : 'warning',
-      summary: `DSCR of ${formatNumber(dscrAtAsking, 2)} at asking is below 1.25 lender minimum.`,
+      summary: `DSCR of ${formatNumber(dscrAtAsking, 2)} at asking is below your ${formatNumber(dscrLimit, 2)} minimum.`,
       whyItMatters: 'Debt Service Coverage Ratio measures how much cash flow covers your debt payment. Most lenders require 1.20-1.25 minimum. Below this, you\'ll either not qualify for the loan or need to bring more cash.',
       lookForInOM: [
         'NOI growth potential to improve DSCR over time',
@@ -966,7 +970,7 @@ export function getDealInsights(inputs: PropertyInputs): DealInsight[] {
         'Expense reduction possibilities'
       ],
       whatToAdjust: [
-        `Offer ${formatCurrency(maxPurchasePrice)} to achieve 1.25 DSCR`,
+        `Offer ${formatCurrency(maxPurchasePrice)} to achieve ${formatNumber(dscrLimit, 2)} DSCR`,
         'Or negotiate seller financing with lower rate/longer amortization',
         'Or bring larger down payment to reduce loan amount'
       ],
