@@ -26,6 +26,7 @@ import {
   calculateClosingCostsAmount,
   calculateOfferAtPrice,
   calculateAnnualDebtServiceForYear,
+  calculateAcquisitionFee,
 } from '../lib/underwriting-calculations';
 import { solveMaxDSCROffer, solveMaxSellerFinanceOffer } from '../lib/scenario-analysis';
 
@@ -72,9 +73,9 @@ export function useUnderwriting() {
       ? calculateAnnualDebtServiceForYear(overviewLoanAmount, inputs.interestRate, inputs.amortizationYears, inputs.interestOnlyMonths, 1)
       : 0;
     const overviewClosingCosts = inputs.askingPrice * (inputs.closingCostsPercent / 100);
-    const overviewTotalCapitalRequired = overviewDownPayment + inputs.repairs + inputs.operatingReserves + overviewClosingCosts;
+    const overviewTotalCapitalRequired = overviewDownPayment + inputs.repairs + inputs.operatingReserves + overviewClosingCosts + calculateAcquisitionFee(inputs, inputs.askingPrice);
     const overviewCashFlow = noi - overviewAnnualDebtService;
-    const overviewPricePerUnit = inputs.askingPrice / inputs.units;
+    const overviewPricePerUnit = inputs.units > 0 ? inputs.askingPrice / inputs.units : 0;
 
     // Per unit (overview is priced at the asking price)
     const pricePerUnit = calculatePricePerUnit(inputs);

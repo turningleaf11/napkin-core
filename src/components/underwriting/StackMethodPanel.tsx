@@ -220,7 +220,12 @@ export function StackMethodPanel({ inputs, updateInput, onEditCriteria }: StackM
                 <StackRow label="Loan Payoff" value={formatCurrency(outstandingLoan)} isNegative={outstandingLoan > 0} />
               </div>
               <div className="border-t border-border/50 pt-2 space-y-0">
-                <StackRow label="Net Cash at Close" value={formatCurrency(calc.sellerNetCash)} isTotal highlight={calc.sellerNetCash >= 0 ? 'green' : undefined} />
+                <StackRow label="Net Cash at Close" value={formatCurrency(calc.sellerNetCash)} isTotal isNegative={calc.sellerNetCash < 0} highlight={calc.sellerNetCash >= 0 ? 'green' : undefined} />
+                {calc.sellerShortfall > 0 && (
+                  <p className="text-xs text-red-600 py-1">
+                    The seller's payoff and costs are {formatCurrency(calc.sellerShortfall)} more than their cash at closing. The seller would have to bring that, or it comes out of your side.
+                  </p>
+                )}
                 <StackRow label="Seller Note (2nd Lien)" value={formatCurrency(calc.sellerFinanceAmt)} />
                 <StackRow label="Total Consideration" value={formatCurrency(calc.sellerNetCash + calc.sellerFinanceAmt)} isTotal />
               </div>
@@ -240,10 +245,16 @@ export function StackMethodPanel({ inputs, updateInput, onEditCriteria }: StackM
                 <StackRow label="Total Cost to Close" value={formatCurrency(calc.buyerTotalCostToClose)} isTotal />
               </div>
               <div className="border-t border-border/50 pt-2 space-y-0">
-                <StackRow label="Walk-Away Cash" value={formatCurrency(calc.buyerWalkAwayCash)} highlight={calc.buyerWalkAwayCash >= 0 ? 'green' : undefined} />
-                <div className="mt-1 px-2 py-1.5 rounded bg-green-50 dark:bg-green-950/30 text-center">
-                  <span className="text-xs font-bold text-green-600">Buyer Brings: $0</span>
-                </div>
+                <StackRow label="Walk-Away Cash" value={formatCurrency(calc.buyerWalkAwayCash)} isNegative={calc.buyerWalkAwayCash < 0} highlight={calc.buyerWalkAwayCash >= 0 ? 'green' : undefined} />
+                {calc.buyerCashNeeded > 0 ? (
+                  <div className="mt-1 px-2 py-1.5 rounded bg-red-50 dark:bg-red-950/30 text-center">
+                    <span className="text-xs font-bold text-red-600">Buyer Brings: {formatCurrency(calc.buyerCashNeeded)}</span>
+                  </div>
+                ) : (
+                  <div className="mt-1 px-2 py-1.5 rounded bg-green-50 dark:bg-green-950/30 text-center">
+                    <span className="text-xs font-bold text-green-600">Buyer Brings: $0</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -283,7 +294,7 @@ export function StackMethodPanel({ inputs, updateInput, onEditCriteria }: StackM
             </div>
             <div className="border-t border-border/50 pt-2 mt-2">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <StackRow label="Buyer Walk-Away" value={formatCurrency(calc.buyerWalkAwayCash)} isTotal highlight={calc.buyerWalkAwayCash >= 0 ? 'green' : undefined} />
+                <StackRow label="Buyer Walk-Away" value={formatCurrency(calc.buyerWalkAwayCash)} isTotal isNegative={calc.buyerWalkAwayCash < 0} highlight={calc.buyerWalkAwayCash >= 0 ? 'green' : undefined} />
                 <div className="space-y-0">
                   <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider pt-1">Property Liens</div>
                   <StackRow label={`1st Lien (${formatPercent(calc.firstLienLtv)} LTV)`} value={formatCurrency(calc.firstLienAmt)} />
@@ -464,7 +475,7 @@ export function StackMethodPanel({ inputs, updateInput, onEditCriteria }: StackM
 
           {/* Refinance Waterfall */}
           <div className="border rounded-lg p-3 bg-muted/20 space-y-1">
-            <StackSectionHeader title={`Refinance — Year ${refiYear}`} />
+            <StackSectionHeader title={calc.hasRefi ? `Refinance — Year ${refiYear}` : 'Refinance — none before the sale'} />
             <StackRow label="Projected NOI (Yr)" value={formatCurrency(calc.noiAtRefi)} />
             <StackRow label="Appraised Value" value={formatCurrency(calc.appraisedValueRefi)} />
             <StackRow label={`New Loan (${refiLTV}% LTV)`} value={formatCurrency(calc.newRefiLoan)} highlight="primary" />
@@ -474,7 +485,11 @@ export function StackMethodPanel({ inputs, updateInput, onEditCriteria }: StackM
             <StackRow label="Prepayment Penalty" value={formatCurrency(calc.prepayPenalty)} isNegative />
             <StackRow label="Net Refi Proceeds" value={formatCurrency(calc.netRefiProceeds)} isTotal highlight={calc.netRefiProceeds >= 0 ? 'green' : undefined} />
             <div className="pt-1 text-[10px] text-muted-foreground italic">
-              All refi proceeds go to buyer — $0 was invested
+              {!calc.hasRefi
+                ? 'Set a refi year before the sale year to model a refinance. Both loans are paid off at the sale.'
+                : calc.buyerCashNeeded > 0
+                  ? 'All refi proceeds go to the buyer.'
+                  : 'All refi proceeds go to buyer — $0 was invested'}
             </div>
           </div>
 
@@ -483,7 +498,7 @@ export function StackMethodPanel({ inputs, updateInput, onEditCriteria }: StackM
             <StackSectionHeader title={`Sale — Year ${saleYear}`} />
             <StackRow label={`Sale Cap Rate (${exitCapRate}% + ${formatNumber(capRateIncreasePerYear * saleYear, 2)}% drift)`} value={`${formatNumber(calc.saleCapRate, 2)}%`} />
             <StackRow label="Sale Price" value={formatCurrency(calc.salePrice)} highlight="primary" />
-            <StackRow label="Refi Loan Balance" value={formatCurrency(calc.refiLoanBalanceAtSale)} isNegative />
+            <StackRow label={calc.hasRefi ? 'Refi Loan Balance' : 'Loan Payoff (1st + Seller)'} value={formatCurrency(calc.refiLoanBalanceAtSale)} isNegative />
             <StackRow label="Selling Costs" value={formatCurrency(calc.sellingCosts)} isNegative />
             <StackRow label="Net Sale Proceeds" value={formatCurrency(calc.netSaleProceeds)} isTotal highlight={calc.netSaleProceeds >= 0 ? 'green' : undefined} />
           </div>

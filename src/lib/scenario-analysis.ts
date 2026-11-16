@@ -22,7 +22,7 @@ export interface CriterionCheck {
   label: string;
   value: number;
   threshold: number;
-  unit: 'x' | '%' | '$/mo';
+  unit: 'x' | '%' | '$/mo' | '$';
   direction: 'min' | 'max';
   passes: boolean;
 }
@@ -43,6 +43,7 @@ export interface OfferSolverResult {
 export function formatCriterionValue(check: Pick<CriterionCheck, 'unit'>, value: number): string {
   if (check.unit === 'x') return `${formatNumber(value, 2)}x`;
   if (check.unit === '$/mo') return `${formatCurrency(value)}/mo`;
+  if (check.unit === '$') return formatCurrency(value);
   return formatPercent(value);
 }
 
@@ -225,7 +226,7 @@ export function getScenarioReadiness(
         ? 'Strong average returns over hold period'
         : `${formatPercent(avgCashOnCash)} is below ${minCashOnCash}% target`,
       unit: '%',
-      whyItMatters: 'Average Cash-on-Cash return measures your average annual cash return on equity invested across the entire hold period, accounting for capital returned at refinance.',
+      whyItMatters: 'Average Cash-on-Cash is the cash paid to members each year, as a percent of the capital they put in, averaged over every year held. Years that pay nothing or need money added count against it.',
       lookForInOM: [
         'Rent growth potential over hold period',
         'Value-add opportunities to boost NOI',
@@ -299,7 +300,9 @@ export function getScenarioReadiness(
       passes: memberCashFlowYear1 > 0,
       comment: memberCashFlowYear1 > 0
         ? 'Positive member distributions year one'
-        : 'No cash flow to members - deal may require capital calls',
+        : memberCashFlowYear1 < 0
+          ? 'Year one loses money - members have to add cash'
+          : 'No cash flow to members in year one',
       unit: '$',
       whyItMatters: 'First-year cash flow to members is what investors actually receive. Positive distributions year one builds investor confidence.',
       lookForInOM: [
@@ -343,9 +346,7 @@ export function getScenarioReadiness(
         ? 'Attractive average returns'
         : `${formatPercent(aar)} is below ${minAAR}% target`,
       unit: '%',
-      whyItMatters: exit.hasRefi
-        ? 'Average Annual Return equals IRR when the plan includes a refinance.'
-        : 'Average Annual Return divides total member returns by years held. Easy to communicate to investors.',
+      whyItMatters: 'Average Annual Return is total member profit (every dollar back minus every dollar in) divided by the capital invested and the years held. Easy to communicate to investors.',
       lookForInOM: [
         'Value-add improvement timeline and costs',
         'Rent increase schedule and magnitude',
@@ -366,7 +367,7 @@ export function getScenarioReadiness(
         ? 'Strong total return on investment'
         : `${formatPercent(totalROI)} is below 100% target`,
       unit: '%',
-      whyItMatters: 'Total Return on Investment shows your total gain as a percentage of capital invested, including cash flow and profits from refinance/sale.',
+      whyItMatters: 'Total Return on Investment is total member profit as a percentage of everything invested: cash flow and profits from refinance and sale, less any money added along the way and any capital not returned.',
       lookForInOM: [
         'Appreciation potential in the market',
         'Value-add opportunities',
